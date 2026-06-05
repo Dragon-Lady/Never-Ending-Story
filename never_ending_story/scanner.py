@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -9,15 +10,23 @@ TEXT_EXTENSIONS = {
     "",
     ".cfg",
     ".conf",
+    ".cjs",
     ".go",
+    ".gyp",
+    ".js",
     ".json",
+    ".jsonl",
     ".lock",
+    ".log",
     ".md",
+    ".mjs",
     ".mod",
     ".ps1",
     ".pth",
     ".py",
     ".sum",
+    ".tsx",
+    ".ts",
     ".toml",
     ".txt",
     ".yaml",
@@ -93,6 +102,51 @@ NPM_INSTALL_TIME_LIFECYCLE_SCRIPTS = {
     "uninstall",
     "postuninstall",
 }
+
+SHADOWABLE_TOOL_NAMES = {
+    "ssh",
+    "git",
+    "npm",
+    "node",
+    "python",
+    "powershell",
+    "gh",
+    "claude",
+    "codex",
+    "composer",
+    "pnpm",
+    "yarn",
+}
+
+DYNATRACE_TOKEN_PATTERN = re.compile(
+    r"dt0[cs][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64,}",
+    re.IGNORECASE,
+)
+
+DYNATRACE_TEAMPCP_REPO_TERMS = (
+    "hard-copilot",
+    "hard-csc",
+    "hard-iam",
+    "local-cluster-setup",
+    "nonprod-dtappghrunner",
+    "prod-copilot",
+    "prod-csc",
+    "prod-dtappghrunner",
+    "prod-iam",
+)
+
+DYNATRACE_TEAMPCP_SERVICE_TERMS = (
+    "dynatrace.scorecards",
+    "dynatrace.security.enrichment",
+    "dynatrace.security.operations",
+    "dynatrace.security.threats.exploits",
+    "dynatrace.sensitive.data.center",
+    "dynatrace.services",
+    "dynatrace.snowflake.connector",
+    "dynatrace.software.lifecycle",
+    "dynatrace.specktrack",
+    "dynatrace.storage.management",
+)
 
 
 @dataclass(frozen=True)
@@ -321,6 +375,23 @@ def _scan_path_surface(path_text: str) -> list[Finding]:
             )
         )
 
+    if name.lower() in SHADOWABLE_TOOL_NAMES:
+        findings.append(
+            Finding(
+                rule_id="inventory.tool_shadowing_candidate",
+                category="inventory",
+                severity="info",
+                phase2_hint="hold",
+                path=path_text,
+                reason=(
+                    "Inventory only — repo-local file is named like a trusted "
+                    "developer tool and could shadow PATH resolution."
+                ),
+                evidence=name,
+                boundary="tool/PATH shadowing",
+            )
+        )
+
     return findings
 
 
@@ -347,7 +418,17 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
     if name == "package.json":
         findings.extend(_scan_package_json(path_text, content))
 
+    if name == "binding.gyp":
+        findings.extend(_scan_binding_gyp(path_text, content))
+
+    if name in {"composer.json", "composer.lock"}:
+        findings.extend(_scan_composer_file(path_text, content))
+
+    if _is_workflow_file(path_text):
+        findings.extend(_scan_workflow_file(path_text, content))
+
     findings.extend(_scan_public_formatter_exposure(path_text, content))
+    findings.extend(_scan_dynatrace_exposure(path_text, content))
 
     if (is_go_dependency_file or is_go_source) and "github.com/shopsprint/decimal" in content:
         severity = "critical" if "v1.3.3" in content else "high"
@@ -403,8 +484,189 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
     return findings
 
 
-def _scan_public_formatter_exposure(path_text: str, content: str) -> list[Finding]:
+def _scan_workflow_file(path_text: str, content: str) -> list[Finding]:
+    findings: list[Finding] = []
     lowered = content.lower()
+
+    if (
+        "actions_id_token_request_token" in lowered
+        or "actions_id_token_request_url" in lowered
+        or "github_token" in lowered
+        or re.search(r"\bid-token\s*:\s*write\b", content, re.IGNORECASE)
+    ):
+        findings.append(
+            Finding(
+                rule_id="ci.workflow_token_surface",
+                category="exposure",
+                severity="medium",
+                phase2_hint="rotate-review",
+                path=path_text,
+                reason="GitHub Actions workflow references token or OIDC request surfaces.",
+                evidence="token/OIDC workflow surface",
+                boundary="CI token surface",
+            )
+        )
+
+    if (
+        re.search(r"\bbase64\b", content, re.IGNORECASE)
+        and re.search(r"\b(curl|wget|bash|sh|python|node)\b", content, re.IGNORECASE)
+    ) or re.search(r"curl\s+-skl\b", content, re.IGNORECASE):
+        findings.append(
+            Finding(
+                rule_id="ci.workflow_encoded_exec",
+                category="exposure",
+                severity="high",
+                phase2_hint="hold",
+                path=path_text,
+                reason="GitHub Actions workflow combines encoding with shell or network execution.",
+                evidence="base64 + shell/network execution",
+                boundary="CI command execution",
+            )
+        )
+
+    has_untrusted_trigger = re.search(
+        r"^\s*(issues|issue_comment|pull_request_review|pull_request_review_comment)\s*:",
+        content,
+        re.IGNORECASE | re.MULTILINE,
+    )
+    has_write_permission = re.search(
+        r"\b(contents|issues|pull-requests|discussions|actions)\s*:\s*write\b",
+        content,
+        re.IGNORECASE,
+    )
+    if has_untrusted_trigger and has_write_permission:
+        findings.append(
+            Finding(
+                rule_id="ci.workflow_untrusted_write_surface",
+                category="exposure",
+                severity="high",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Workflow appears reachable from issue/PR surfaces while granting write permissions.",
+                evidence="untrusted trigger + write permission",
+                boundary="CI trust boundary",
+            )
+        )
+
+    if "anthropics/claude-code-action@" in lowered:
+        findings.append(
+            Finding(
+                rule_id="ci.claude_code_action_surface",
+                category="inventory",
+                severity="info",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Inventory only — workflow uses Claude Code Action.",
+                evidence="anthropics/claude-code-action",
+                boundary="agentic CI action",
+            )
+        )
+
+    if re.search(r"allowed_non_write_users\s*:\s*['\"]?\*", content, re.IGNORECASE):
+        findings.append(
+            Finding(
+                rule_id="ci.claude_code_action_untrusted_users",
+                category="exposure",
+                severity="high",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Claude Code Action allows all non-write users.",
+                evidence="allowed_non_write_users: *",
+                boundary="agentic CI action",
+            )
+        )
+
+    if "mcp__github__get_issue" in lowered and "mcp__github__update_issue" in lowered:
+        findings.append(
+            Finding(
+                rule_id="ci.claude_code_action_github_mcp_write_surface",
+                category="exposure",
+                severity="medium",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Claude Code Action exposes both GitHub issue read and update MCP tools.",
+                evidence="mcp__github__get_issue + mcp__github__update_issue",
+                boundary="agentic CI action",
+            )
+        )
+
+    return findings
+
+
+def _scan_binding_gyp(path_text: str, content: str) -> list[Finding]:
+    findings: list[Finding] = []
+    for expansion in re.findall(r"<!\([\s\S]*?\)", content):
+        suspicious = re.search(
+            r"\b(node|bun|curl|wget|powershell|pwsh|bash|sh|python|python3)\b|/tmp/|%TEMP%|\.js\b|>\s*/dev/null|2>&1",
+            expansion,
+            re.IGNORECASE,
+        )
+        findings.append(
+            Finding(
+                rule_id=(
+                    "node.binding_gyp_command_execution"
+                    if suspicious
+                    else "node.binding_gyp_command_expansion"
+                ),
+                category="indicator" if suspicious else "inventory",
+                severity="high" if suspicious else "info",
+                phase2_hint="hold",
+                path=path_text,
+                reason="binding.gyp contains node-gyp command expansion.",
+                evidence=_truncate_evidence(expansion),
+                boundary="package install hook",
+            )
+        )
+    return findings
+
+
+def _scan_composer_file(path_text: str, content: str) -> list[Finding]:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+
+    packages = []
+    if isinstance(data, dict):
+        if isinstance(data.get("packages"), list):
+            packages.extend(data["packages"])
+        if isinstance(data.get("packages-dev"), list):
+            packages.extend(data["packages-dev"])
+        packages.append(data)
+
+    findings: list[Finding] = []
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        require = package.get("require") if isinstance(package.get("require"), dict) else {}
+        extra = package.get("extra") if isinstance(package.get("extra"), dict) else {}
+        plugin_entry = extra.get("class") or extra.get("plugin-class")
+        capabilities = []
+        if package.get("type") == "composer-plugin":
+            capabilities.append("type=composer-plugin")
+        if "composer-plugin-api" in require:
+            capabilities.append("require=composer-plugin-api")
+        if isinstance(plugin_entry, (str, list)):
+            capabilities.append("extra.class/plugin-class")
+        if not capabilities:
+            continue
+        name = package.get("name") if isinstance(package.get("name"), str) else "(root composer package)"
+        findings.append(
+            Finding(
+                rule_id="composer.plugin_capability",
+                category="inventory",
+                severity="info",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Composer package declares install/update-time plugin capability.",
+                evidence=f"{name}: {', '.join(capabilities)}",
+                boundary="Composer install hook",
+            )
+        )
+    return findings
+
+
+def _scan_public_formatter_exposure(path_text: str, content: str) -> list[Finding]:
     domain = _first_matching(content, PUBLIC_FORMATTER_DOMAINS)
     if not domain:
         return []
@@ -429,6 +691,56 @@ def _scan_public_formatter_exposure(path_text: str, content: str) -> list[Findin
             boundary="public paste exposure",
         )
     ]
+
+
+def _scan_dynatrace_exposure(path_text: str, content: str) -> list[Finding]:
+    findings: list[Finding] = []
+    seen_tokens = set(DYNATRACE_TOKEN_PATTERN.findall(content))
+    for token in sorted(seen_tokens):
+        findings.append(
+            Finding(
+                rule_id="exposure.dynatrace_token_shape",
+                category="exposure",
+                severity="high",
+                phase2_hint="rotate-review",
+                path=path_text,
+                reason="Dynatrace token-shaped credential appears in local text.",
+                evidence=_redact_dynatrace_token(token),
+                boundary="credential exposure",
+            )
+        )
+
+    for term in DYNATRACE_TEAMPCP_REPO_TERMS:
+        if term in content:
+            findings.append(
+                Finding(
+                    rule_id="exposure.dynatrace_teampcp_repo_term",
+                    category="exposure",
+                    severity="medium",
+                    phase2_hint="review",
+                    path=path_text,
+                    reason="Dynatrace/TeamPCP repository term appears in local metadata or notes.",
+                    evidence=term,
+                    boundary="public screenshot / repo-name exposure",
+                )
+            )
+
+    for term in DYNATRACE_TEAMPCP_SERVICE_TERMS:
+        if term in content:
+            findings.append(
+                Finding(
+                    rule_id="exposure.dynatrace_teampcp_service_term",
+                    category="exposure",
+                    severity="medium",
+                    phase2_hint="review",
+                    path=path_text,
+                    reason="Dynatrace/TeamPCP service term appears in local metadata or notes.",
+                    evidence=term,
+                    boundary="public screenshot / service-name exposure",
+                )
+            )
+
+    return findings
 
 
 def _scan_package_json(path_text: str, content: str) -> list[Finding]:
@@ -470,9 +782,29 @@ def _line_evidence(content: str, needle: str) -> str:
     return needle
 
 
+def _is_workflow_file(path_text: str) -> bool:
+    lowered = path_text.lower()
+    return "/.github/workflows/" in "/" + lowered and (
+        lowered.endswith(".yml") or lowered.endswith(".yaml")
+    )
+
+
 def _first_matching(content: str, patterns: tuple[str, ...]) -> str:
     lowered = content.lower()
     for pattern in patterns:
         if pattern in lowered:
             return pattern
     return ""
+
+
+def _truncate_evidence(value: str, max_length: int = 180) -> str:
+    if len(value) <= max_length:
+        return value
+    return value[: max_length - 3] + "..."
+
+
+def _redact_dynatrace_token(token: str) -> str:
+    parts = token.split(".")
+    if len(parts) < 3:
+        return "dt0***"
+    return f"{parts[0]}.{parts[1]}.<redacted>"
