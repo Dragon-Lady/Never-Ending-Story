@@ -118,6 +118,28 @@ SHADOWABLE_TOOL_NAMES = {
     "yarn",
 }
 
+CREDENTIAL_ADJACENT_NAMES = {
+    ".env",
+    ".env.local",
+    ".npmrc",
+    ".pypirc",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+    "credentials.json",
+    "service-account.json",
+    "token.json",
+}
+
+CONFIG_REVIEW_NAMES = {
+    "openclaw.json",
+    "openclaw.config.json",
+    "config.json",
+    "settings.json",
+    ".env",
+    ".env.local",
+}
+
 DYNATRACE_TOKEN_PATTERN = re.compile(
     r"dt0[cs][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64,}",
     re.IGNORECASE,
@@ -392,6 +414,37 @@ def _scan_path_surface(path_text: str) -> list[Finding]:
             )
         )
 
+    if name.lower() in CREDENTIAL_ADJACENT_NAMES:
+        findings.append(
+            Finding(
+                rule_id="inventory.credential_adjacent_path",
+                category="inventory",
+                severity="info",
+                phase2_hint="hold",
+                path=path_text,
+                reason=(
+                    "Inventory only — credential-adjacent file name observed. "
+                    "The scanner reports the path only."
+                ),
+                evidence=path_text,
+                boundary="credential-adjacent file",
+            )
+        )
+
+    if name.lower() in {"skill.md", "hook.md"}:
+        findings.append(
+            Finding(
+                rule_id="inventory.extension_metadata_surface",
+                category="inventory",
+                severity="info",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Inventory only — local skill or hook metadata file present.",
+                evidence=name,
+                boundary="agent/plugin extension",
+            )
+        )
+
     return findings
 
 
@@ -417,6 +470,12 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
 
     if name == "package.json":
         findings.extend(_scan_package_json(path_text, content))
+
+    if name.lower() == ".npmrc":
+        findings.extend(_scan_npmrc(path_text, content))
+
+    if name.lower() in CONFIG_REVIEW_NAMES:
+        findings.extend(_scan_exposure_config(path_text, content))
 
     if name == "binding.gyp":
         findings.extend(_scan_binding_gyp(path_text, content))
@@ -481,6 +540,67 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
             )
         )
 
+    return findings
+
+
+def _scan_npmrc(path_text: str, content: str) -> list[Finding]:
+    if not re.search(r"^\s*git\s*=", content, re.IGNORECASE | re.MULTILINE):
+        return []
+    return [
+        Finding(
+            rule_id="exposure.npmrc_git_override",
+            category="exposure",
+            severity="high",
+            phase2_hint="hold",
+            path=path_text,
+            reason=".npmrc overrides the git executable used by package manager flows.",
+            evidence="git=<redacted>",
+            boundary="package install hook",
+        )
+    ]
+
+
+def _scan_exposure_config(path_text: str, content: str) -> list[Finding]:
+    findings: list[Finding] = []
+    if re.search(r"\b(0\.0\.0\.0|\[::\]|::)\b", content):
+        findings.append(
+            Finding(
+                rule_id="exposure.public_bind_config",
+                category="exposure",
+                severity="high",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Config appears to bind a service to all interfaces.",
+                evidence="public bind address",
+                boundary="service exposure config",
+            )
+        )
+    if re.search(r"['\"]?\b(auth|authentication|requireAuth)\b['\"]?\s*[:=]\s*(false|0|off|disabled)", content, re.IGNORECASE):
+        findings.append(
+            Finding(
+                rule_id="exposure.weak_auth_config",
+                category="exposure",
+                severity="high",
+                phase2_hint="hold",
+                path=path_text,
+                reason="Config appears to disable authentication.",
+                evidence="auth disabled",
+                boundary="service exposure config",
+            )
+        )
+    if re.search(r"['\"]?\b(allow|allowed)\w*\b['\"]?\s*[:=]\s*(\*|\"?\*\"?)", content, re.IGNORECASE):
+        findings.append(
+            Finding(
+                rule_id="exposure.broad_allow_config",
+                category="exposure",
+                severity="medium",
+                phase2_hint="review",
+                path=path_text,
+                reason="Config appears to allow all origins, hosts, users, or tools.",
+                evidence="broad allow",
+                boundary="service exposure config",
+            )
+        )
     return findings
 
 

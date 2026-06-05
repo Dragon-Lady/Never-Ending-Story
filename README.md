@@ -35,6 +35,8 @@ The scanner is announce-only. Findings are signals for human review.
   `jsonformatter.org` or `codebeautify.org` plus saved-paste mechanics like
   `Recent Links`, `/recentLinksPage/json/`, `/service/getDataFromID`, `urlid=`,
   or six-hex paste IDs.
+- Service exposure config patterns such as binding to `0.0.0.0` / `::`,
+  disabled authentication, or broad allow-list values.
 - Known Socket May 19 anchor: `github.com/shopsprint/decimal`, especially
   `v1.3.3`.
 - Go import-time DNS TXT plus command execution: `func init`, `LookupTXT`, and
@@ -42,6 +44,7 @@ The scanner is announce-only. Findings are signals for human review.
 - DNS TXT references to dynamic DNS providers such as `freemyip.com`.
 - Agent config surfaces: `.mcp.json`, `.claude*`, `.cursor`, `.gemini`, and
   `.copilot` canonical config files only.
+- Skill/hook metadata files such as `SKILL.md` and `HOOK.md`.
 - Bare nested `mcp.json` inside confirmed agent config directories: `.claude`,
   `.cursor`, and `.gemini`.
 - Git hooks.
@@ -58,11 +61,15 @@ The scanner is announce-only. Findings are signals for human review.
 - Composer plugin capability in `composer.json` or `composer.lock`, including
   `type=composer-plugin`, `composer-plugin-api`, and `extra.class` /
   `extra.plugin-class`.
+- `.npmrc` `git=` executable overrides that can affect package install flows.
 - Repo-local files named like trusted developer tools such as `ssh`, `git`,
   `npm`, `node`, `python`, `gh`, `claude`, `codex`, `composer`, `pnpm`, or
   `yarn`, which may shadow PATH resolution.
 - Python import-time hook surfaces outside skipped env/cache directories:
   `sitecustomize.py`, `usercustomize.py`, and `.pth` files.
+- Credential-adjacent file names such as `.env`, `.npmrc`, `.pypirc`,
+  `id_rsa`, `id_ed25519`, `credentials.json`, `service-account.json`, and
+  `token.json`. These are reported by path only.
 - Dynatrace-shaped token exposure and selected Dynatrace/TeamPCP repo or
   service-name strings observed in public threat-context screenshots. Token
   evidence is redacted.

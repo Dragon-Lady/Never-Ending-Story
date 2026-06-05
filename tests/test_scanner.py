@@ -404,6 +404,54 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("exposure.dynatrace_teampcp_service_term", ids)
         self.assertIn("exposure.dynatrace_teampcp_repo_term", ids)
 
+    def test_flags_openclaw_style_extension_and_npmrc_git_override_surfaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin_dir = root / "plugin"
+            plugin_dir.mkdir()
+            (plugin_dir / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            (plugin_dir / ".npmrc").write_text("git=calc.exe\n", encoding="utf-8")
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("inventory.extension_metadata_surface", ids)
+        self.assertIn("exposure.npmrc_git_override", ids)
+
+    def test_flags_public_bind_weak_auth_and_broad_allow_configs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "settings.json").write_text(
+                '{ "host": "0.0.0.0", "requireAuth": false, "allowedOrigins": "*" }\n',
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("exposure.public_bind_config", ids)
+        self.assertIn("exposure.weak_auth_config", ids)
+        self.assertIn("exposure.broad_allow_config", ids)
+
+    def test_flags_credential_adjacent_paths_without_reading_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text("TOKEN=do-not-print-this-value\n", encoding="utf-8")
+            ssh_dir = root / ".ssh"
+            ssh_dir.mkdir()
+            (ssh_dir / "id_rsa").write_text("private material\n", encoding="utf-8")
+
+            report = scan_path(root)
+
+        credential_findings = [
+            finding
+            for finding in report.findings
+            if finding.rule_id == "inventory.credential_adjacent_path"
+        ]
+        self.assertEqual(2, len(credential_findings))
+        self.assertTrue(all(finding.category == "inventory" for finding in credential_findings))
+        self.assertNotIn("do-not-print-this-value", render_markdown(report))
+
     def test_flags_python_import_time_hook_surfaces_at_repo_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
