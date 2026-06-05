@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.tmp
+*.log
+
+# Local/private project notes that are not part of the public tool release.
+CHECKPOINT_*.md
+DRAGONEYE_*.md
+MUST_DO.md
+PHASE*_GATE.md
+TRIAL_LOG.md
+report-*.md
+docs/superpowers/
