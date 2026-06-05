@@ -487,6 +487,7 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
         findings.extend(_scan_workflow_file(path_text, content))
 
     findings.extend(_scan_public_formatter_exposure(path_text, content))
+    findings.extend(_scan_iterm2_conductor_escape(path_text, content))
     findings.extend(_scan_dynatrace_exposure(path_text, content))
 
     if (is_go_dependency_file or is_go_source) and "github.com/shopsprint/decimal" in content:
@@ -809,6 +810,34 @@ def _scan_public_formatter_exposure(path_text: str, content: str) -> list[Findin
             ),
             evidence=f"{domain} + {surface}",
             boundary="public paste exposure",
+        )
+    ]
+
+
+def _scan_iterm2_conductor_escape(path_text: str, content: str) -> list[Finding]:
+    has_dcs_hook = "\x1bP2000p" in content or "DCS 2000p" in content
+    has_osc_conductor = "\x1b]135;" in content or "OSC 135" in content
+    if not (has_dcs_hook and has_osc_conductor):
+        return []
+
+    evidence = "DCS 2000p + OSC 135"
+    if "ace/c+aliFIo" in content:
+        evidence += " + ace/c+aliFIo"
+
+    return [
+        Finding(
+            rule_id="exposure.iterm2_ssh_conductor_escape",
+            category="exposure",
+            severity="high",
+            phase2_hint="hold",
+            path=path_text,
+            reason=(
+                "File contains iTerm2 SSH conductor escape-sequence markers. "
+                "Do not print this file directly in iTerm2; review with a safe "
+                "viewer that escapes control bytes."
+            ),
+            evidence=evidence,
+            boundary="terminal escape protocol",
         )
     ]
 

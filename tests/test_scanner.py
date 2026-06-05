@@ -212,6 +212,22 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("## Exposure Review", markdown)
         self.assertIn("exposure.public_formatter_surface", markdown)
 
+    def test_flags_iterm2_conductor_escape_sequence_surface(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "readme.txt").write_text(
+                "\x1bP2000p attacker-controlled sshargs \x1b\\\n"
+                "\x1b]135;begin 1\x07\n"
+                "\x1b]135;end 1 0 r\x07\n"
+                "ace/c+aliFIo\n",
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("exposure.iterm2_ssh_conductor_escape", ids)
+
     def test_formatter_domain_alone_does_not_trigger_exposure_lane(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

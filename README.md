@@ -35,6 +35,9 @@ The scanner is announce-only. Findings are signals for human review.
   `jsonformatter.org` or `codebeautify.org` plus saved-paste mechanics like
   `Recent Links`, `/recentLinksPage/json/`, `/service/getDataFromID`, `urlid=`,
   or six-hex paste IDs.
+- Terminal escape protocol risks, including iTerm2 SSH conductor markers such
+  as `DCS 2000p` and `OSC 135` that can make untrusted text unsafe to print
+  directly in a terminal emulator.
 - Service exposure config patterns such as binding to `0.0.0.0` / `::`,
   disabled authentication, or broad allow-list values.
 - Known Socket May 19 anchor: `github.com/shopsprint/decimal`, especially
