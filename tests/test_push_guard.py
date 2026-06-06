@@ -87,6 +87,41 @@ class PushGuardTests(unittest.TestCase):
         self.assertEqual("secret.github_token", findings[0].rule_id)
         self.assertNotIn(secret, findings[0].evidence)
 
+    def test_token_shape_with_embedded_placeholder_word_is_detected(self):
+        secret = "ghp_test" + "a" * 30
+        findings = scan_text_for_secrets(secret, path="config.py")
+
+        self.assertEqual(1, len(findings))
+        self.assertEqual("secret.github_token", findings[0].rule_id)
+        self.assertNotIn(secret, findings[0].evidence)
+
+    def test_detects_underscored_secret_assignment(self):
+        secret = "abcdEFGH1234ijklMNOP5678qrstUVWX"
+        findings = scan_text_for_secrets(
+            f"AWS_SECRET_ACCESS_KEY={secret}", path=".env"
+        )
+
+        self.assertEqual(1, len(findings))
+        self.assertEqual("secret.generic_assignment", findings[0].rule_id)
+        self.assertNotIn(secret, findings[0].evidence)
+
+    def test_generic_secret_with_embedded_common_word_is_not_skipped(self):
+        secret = "mytestpasswordABCDEF1234567890"
+        findings = scan_text_for_secrets(
+            f"password = '{secret}'", path="config.py"
+        )
+
+        self.assertEqual(1, len(findings))
+        self.assertEqual("secret.generic_assignment", findings[0].rule_id)
+        self.assertNotIn(secret, findings[0].evidence)
+
+    def test_verbose_dummy_placeholder_value_is_still_ignored(self):
+        findings = scan_text_for_secrets(
+            "api_key = 'your-api-key-here-please-replace'", path="README.md"
+        )
+
+        self.assertEqual([], findings)
+
     def test_scan_diff_reports_added_secret_path_and_line(self):
         secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
         diff_text = "\n".join(
