@@ -545,3 +545,31 @@ class ScannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JetBrainsDescriptorRegressionTests(unittest.TestCase):
+    def test_standard_plugin_xml_with_neutral_install_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            descriptor = root / "plugins" / "neutral" / "META-INF" / "plugin.xml"
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text("<idea-plugin><id>org.sm.yms.toolkit</id></idea-plugin>")
+            report = scan_path(root)
+            hits = [f for f in report.findings if f.rule_id == "indicator.jetbrains_ai_key_plugin"]
+            self.assertEqual(len(hits), 1)
+            self.assertTrue(hits[0].path.endswith("META-INF/plugin.xml"))
+
+    def test_endpoint_requires_reported_host_and_exact_path_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "metadata.txt"
+            for value in ["https://example.com/api/software/key", "/api/software/key", "39.107.60.51", "https://139.107.60.51/api/software/key", "https://39.107.60.51/api/software/keyring", "https://example.com/39.107.60.51/api/software/key"]:
+                with self.subTest(value=value):
+                    target.write_text(value)
+                    self.assertFalse(any(f.rule_id == "indicator.jetbrains_ai_key_endpoint" for f in scan_path(root).findings))
+            for value in ["https://39.107.60.51/api/software/key", "39.107.60[.]51/api/software/key", "http://39.107.60.51:80/api/software/key?private=CANARY"]:
+                with self.subTest(value=value):
+                    target.write_text(value + "\n" + value)
+                    hits = [f for f in scan_path(root).findings if f.rule_id == "indicator.jetbrains_ai_key_endpoint"]
+                    self.assertEqual(len(hits), 1)
+                    self.assertNotIn("CANARY", hits[0].evidence)

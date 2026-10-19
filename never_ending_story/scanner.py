@@ -29,6 +29,7 @@ TEXT_EXTENSIONS = {
     ".ts",
     ".toml",
     ".txt",
+    ".xml",
     ".yaml",
     ".yml",
 }
@@ -188,13 +189,11 @@ JETBRAINS_AI_KEY_PLUGIN_IDS = (
     "com.dp.git.ai.tool",
 )
 
-JETBRAINS_AI_KEY_ENDPOINT_INDICATORS = (
-    "39.107.60.51",
-    "39.107.60[.]51",
-    "39.107.60.51/api/software/key",
-    "39.107.60[.]51/api/software/key",
-    "/api/software/key",
+JETBRAINS_AI_KEY_ENDPOINT_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9._/-])(?:https?://)?39\.107\.60(?:\.|\[\.\])51"
+    r"(?::[0-9]{1,5})?/api/software/key(?=$|[?\s#'\"<>])"
 )
+
 
 
 @dataclass(frozen=True)
@@ -611,24 +610,24 @@ def _scan_jetbrains_ai_key_stealer(path_text: str, content: str) -> list[Finding
                 )
             )
 
-    for indicator in JETBRAINS_AI_KEY_ENDPOINT_INDICATORS:
-        if indicator in content:
-            findings.append(
-                Finding(
-                    rule_id="indicator.jetbrains_ai_key_endpoint",
-                    category="indicator",
-                    severity="critical",
-                    phase2_hint="block",
-                    path=path_text,
-                    reason=(
-                        "Matches reported JetBrains Marketplace AI-key stealer "
-                        "exfiltration endpoint. A matched indicator, not a "
-                        "verdict - verify file context."
-                    ),
-                    evidence=_line_evidence(content, indicator),
-                    boundary="network/exfiltration",
-                )
+    endpoint = JETBRAINS_AI_KEY_ENDPOINT_PATTERN.search(content)
+    if endpoint:
+        findings.append(
+            Finding(
+                rule_id="indicator.jetbrains_ai_key_endpoint",
+                category="indicator",
+                severity="critical",
+                phase2_hint="block",
+                path=path_text,
+                reason=(
+                    "Matches reported JetBrains Marketplace AI-key stealer "
+                    "exfiltration endpoint. A matched indicator, not a "
+                    "verdict - verify file context."
+                ),
+                evidence=endpoint.group(),
+                boundary="network/exfiltration",
             )
+        )
 
     return findings
 
