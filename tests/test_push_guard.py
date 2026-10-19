@@ -11,7 +11,7 @@ from never_ending_story.push_guard import (
 
 class PushGuardTests(unittest.TestCase):
     def test_detects_github_tokens_without_returning_secret_value(self):
-        secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+        secret = "ghp_" + "Ab3d" * 9
         findings = scan_text_for_secrets(f"token={secret}", path="example.env")
 
         self.assertEqual(1, len(findings))
@@ -21,7 +21,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertIn("redacted", findings[0].evidence.lower())
 
     def test_detects_github_fine_grained_token_without_returning_secret_value(self):
-        secret = "github_pat_11AAAAAAA0abcdefghijklmnopqrstuvwxyzABCDEFGHI"
+        secret = "github_pat_" + "1Ab2" * 12
         findings = scan_text_for_secrets(secret, path="notes.txt")
 
         self.assertEqual(1, len(findings))
@@ -30,7 +30,7 @@ class PushGuardTests(unittest.TestCase):
 
     def test_detects_private_key_block_without_returning_body(self):
         text = (
-            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            "-----BEGIN " + "OPENSSH " + "PRIVATE KEY-----\n"
             "abc123abc123abc123abc123\n"
             "-----END OPENSSH PRIVATE KEY-----\n"
         )
@@ -41,7 +41,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertNotIn("abc123abc123abc123abc123", findings[0].evidence)
 
     def test_detects_openai_style_token_without_returning_secret_value(self):
-        secret = "sk-abcdefghijklmnopqrstuvwxyzABCDEF"
+        secret = "sk-" + "Ab3d" * 8
         findings = scan_text_for_secrets(f"OPENAI_API_KEY={secret}", path=".env")
 
         self.assertEqual(1, len(findings))
@@ -49,7 +49,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertNotIn(secret, findings[0].evidence)
 
     def test_detects_aws_access_key_without_returning_secret_value(self):
-        secret = "AKIAABCDEFGHIJKLMNOP"
+        secret = "AKIA" + "ABCD" * 4
         findings = scan_text_for_secrets(f"AWS_ACCESS_KEY_ID={secret}", path=".env")
 
         self.assertEqual(1, len(findings))
@@ -57,7 +57,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertNotIn(secret, findings[0].evidence)
 
     def test_detects_generic_secret_assignment_without_returning_secret_value(self):
-        secret = "superlongsecretvalue1234567890"
+        secret = "longfixture" + "AB12" * 7
         findings = scan_text_for_secrets(f"api_key = '{secret}'", path="config.py")
 
         self.assertEqual(1, len(findings))
@@ -77,7 +77,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertEqual([], findings)
 
     def test_specific_token_is_not_hidden_by_placeholder_comment(self):
-        secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+        secret = "ghp_" + "Ab3d" * 9
         findings = scan_text_for_secrets(
             f'token = "{secret}"  # test this config',
             path="config.py",
@@ -96,7 +96,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertNotIn(secret, findings[0].evidence)
 
     def test_detects_underscored_secret_assignment(self):
-        secret = "abcdEFGH1234ijklMNOP5678qrstUVWX"
+        secret = "Ab3d" * 8
         findings = scan_text_for_secrets(
             f"AWS_SECRET_ACCESS_KEY={secret}", path=".env"
         )
@@ -106,7 +106,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertNotIn(secret, findings[0].evidence)
 
     def test_generic_secret_with_embedded_common_word_is_not_skipped(self):
-        secret = "mytestpasswordABCDEF1234567890"
+        secret = "mytestpassword" + "AB12" * 5
         findings = scan_text_for_secrets(
             f"password = '{secret}'", path="config.py"
         )
@@ -123,7 +123,7 @@ class PushGuardTests(unittest.TestCase):
         self.assertEqual([], findings)
 
     def test_scan_diff_reports_added_secret_path_and_line(self):
-        secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+        secret = "ghp_" + "Ab3d" * 9
         diff_text = "\n".join(
             [
                 "diff --git a/config.py b/config.py",
@@ -236,12 +236,11 @@ class PushGuardTests(unittest.TestCase):
 
         self.assertEqual([], _scan_diff(diff_text))
 
-    def test_ignore_marker_suppresses_secret_and_workflow_rules(self):
-        # A line carrying the explicit opt-out marker is skipped by every rule,
-        # even when it contains a real token shape and an IOC pattern.
+    def test_ignore_marker_cannot_suppress_secret_or_workflow_rules(self):
+        secret = "ghp_" + "Ab3d" * 9
         line = (
-            "+const k = \"ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\";"  # push-guard: ignore
-            "  Bun.spawnSync([\"ssh\", h, \"/tmp/.sshu-x\"]);  # push-guard: ignore"
+            f'+const k = "{secret}";'
+            '  Bun.spawnSync(["ssh", h, "/tmp/.sshu-x"]);  # push-guard: ignore'
         )
         diff_text = "\n".join(
             [
@@ -251,11 +250,15 @@ class PushGuardTests(unittest.TestCase):
                 line,
             ]
         )
-
-        self.assertEqual([], _scan_diff(diff_text))
+        findings = _scan_diff(diff_text)
+        rules = {finding.rule_id for finding in findings}
+        self.assertIn("secret.github_token", rules)
+        self.assertIn("workflow.shai_hulud_ssh_tmp", rules)
+        self.assertIn("workflow.bun_tmp_exec", rules)
+        self.assertTrue(all(secret not in finding.evidence for finding in findings))
 
     def test_main_blocks_and_reports_redacted_findings(self):
-        secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+        secret = "ghp_" + "Ab3d" * 9
         finding_diff = "\n".join(
             [
                 "diff --git a/config.py b/config.py",

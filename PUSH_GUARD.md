@@ -20,8 +20,13 @@ Purpose: prevent likely secrets from being pushed if wired into a Git
 The guard exits nonzero when likely secret material is detected in commits being
 pushed. Git treats a nonzero `pre-push` hook exit as a failed push.
 Blocking a push is Git's response to the advisory. The scanner remains
-read-only and does not mutate files. Override is available with
-`git push --no-verify` when the matched value is known not to be a secret.
+read-only and does not mutate files. Inline comments cannot suppress findings.
+Fix detected content and use the separately installed Push Guard's reviewed
+workflow fixture policy where appropriate; never bypass the hook.
+
+This bundled module does not load `.push-guard-allow` itself. That repository
+policy is for the separately installed Push Guard tool. Keep using that tool
+for shared hooks; this module's detection API remains available for local scans.
 
 ## Current Secret Signals
 
@@ -55,11 +60,10 @@ and preserve or intentionally chain any existing hooks.
 
 - Pattern-based detection can miss secrets or flag non-secrets.
 - Long non-secret identifiers in assignments such as
-  `secret = mySuperLongFunctionCallHereWithNoSpaces` can match the generic
-  assignment rule.
-- Compound underscored names such as `AWS_SECRET_ACCESS_KEY` are not matched by
-  the generic keyword boundary. Prefix-specific rules can still catch known
-  token formats such as `AKIA...` / `ASIA...`.
+  a long function name assigned to a secret-like variable can match the
+  generic assignment rule.
+- Compound underscored names such as `AWS_SECRET_ACCESS_KEY` are covered by
+  the generic assignment rule; provider-specific token rules also apply.
 - If a hook is installed from a Git subdirectory, Git may resolve `--repo` to a
   parent repository root. This is acceptable for current diff-only scanning, but
   future path-relative features such as allowlists or report output must resolve

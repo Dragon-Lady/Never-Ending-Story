@@ -10,12 +10,7 @@ from pathlib import Path
 
 ZERO_SHA = "0" * 40
 
-# Inline allowlist escape hatch. A line containing this marker is skipped by
-# every rule. Use it on lines that legitimately carry IOC-shaped strings: this
-# detector's own pattern definitions and test fixtures, or a deploy script
-# that really does ssh-then-exec. It is explicit and grep-auditable on purpose --
-# matching detect-secrets' `# pragma: allowlist secret` philosophy.
-IGNORE_MARKER = re.compile(r"push-guard:\s*ignore", re.IGNORECASE)
+# Scanned content cannot exempt itself from secret or workflow detection.
 
 PLACEHOLDER_WORDS = {
     "changeme",
@@ -213,10 +208,6 @@ def main(argv: list[str] | None = None) -> int:
 
 def _scan_line(line: str, path: str, line_number: int) -> list[SecretFinding]:
     findings: list[SecretFinding] = []
-
-    # Explicit per-line opt-out. Skip the whole line for every rule.
-    if IGNORE_MARKER.search(line):
-        return findings
 
     for rule_id, pattern, reason, high_confidence in SECRET_PATTERNS:
         for match in pattern.finditer(line):
