@@ -1,0 +1,8 @@
+# Reviewed detector definitions, inert fixtures and scanner metadata only.
+# Exact file/rule exceptions; never credentials, personal terms or private paths.
+# Reviewed against the source content in this migration, not inferred from comments.
+# Establish this policy in the destination branch before upgrading shared hooks.
+# Legacy fixture comments remain only for pre-push compatibility with 0.4.2.
+never_ending_story/push_guard.py workflow.hades_github_exfil_marker,workflow.hades_github_token_monitor,workflow.hades_pypi_bun_download,workflow.hades_pypi_bun_sentinel,workflow.shai_hulud_ssh_tmp,workflow.ssh_fanout_exec
+tests/test_push_guard.py workflow.bun_tmp_exec,workflow.dprk_socketio_node_exec,workflow.hades_github_exfil_marker,workflow.hades_github_token_monitor,workflow.hades_pypi_bun_download,workflow.shai_hulud_ai_loader,workflow.shai_hulud_ssh_shape,workflow.shai_hulud_ssh_tmp,workflow.ssh_fanout_exec
+tests/test_scanner.py workflow.ssh_fanout_exec
