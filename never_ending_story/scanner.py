@@ -170,6 +170,32 @@ DYNATRACE_TEAMPCP_SERVICE_TERMS = (
     "dynatrace.storage.management",
 )
 
+JETBRAINS_AI_KEY_PLUGIN_IDS = (
+    "org.sm.yms.toolkit",
+    "com.json.simple.kit",
+    "org.bug.find.tools",
+    "org.translate.ai.simple",
+    "com.yy.test.ai.simple",
+    "com.dev.ai.toolkit",
+    "com.json.view.simple",
+    "com.my.git.ai.kit",
+    "org.check.ai.ds",
+    "com.review.tool.code",
+    "org.code.assist.dev.tool",
+    "com.coder.ai.dpt",
+    "com.my.code.tools",
+    "ord.cp.code.ai.kit",
+    "com.dp.git.ai.tool",
+)
+
+JETBRAINS_AI_KEY_ENDPOINT_INDICATORS = (
+    "39.107.60.51",
+    "39.107.60[.]51",
+    "39.107.60.51/api/software/key",
+    "39.107.60[.]51/api/software/key",
+    "/api/software/key",
+)
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -445,6 +471,25 @@ def _scan_path_surface(path_text: str) -> list[Finding]:
             )
         )
 
+    for plugin_id in JETBRAINS_AI_KEY_PLUGIN_IDS:
+        if plugin_id in lowered:
+            findings.append(
+                Finding(
+                    rule_id="indicator.jetbrains_ai_key_plugin",
+                    category="indicator",
+                    severity="critical",
+                    phase2_hint="block",
+                    path=path_text,
+                    reason=(
+                        "Matches Aikido/BleepingComputer JetBrains Marketplace "
+                        "AI-key stealer plugin ID. A matched indicator, not a "
+                        "verdict - verify file context."
+                    ),
+                    evidence=plugin_id,
+                    boundary="IDE plugin identity",
+                )
+            )
+
     return findings
 
 
@@ -489,6 +534,7 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
     findings.extend(_scan_public_formatter_exposure(path_text, content))
     findings.extend(_scan_iterm2_conductor_escape(path_text, content))
     findings.extend(_scan_dynatrace_exposure(path_text, content))
+    findings.extend(_scan_jetbrains_ai_key_stealer(path_text, content))
 
     if (is_go_dependency_file or is_go_source) and "github.com/shopsprint/decimal" in content:
         severity = "critical" if "v1.3.3" in content else "high"
@@ -540,6 +586,49 @@ def _scan_content(path_text: str, content: str) -> list[Finding]:
                 boundary="network/DNS",
             )
         )
+
+    return findings
+
+
+def _scan_jetbrains_ai_key_stealer(path_text: str, content: str) -> list[Finding]:
+    findings: list[Finding] = []
+    for plugin_id in JETBRAINS_AI_KEY_PLUGIN_IDS:
+        if plugin_id in content:
+            findings.append(
+                Finding(
+                    rule_id="indicator.jetbrains_ai_key_plugin",
+                    category="indicator",
+                    severity="critical",
+                    phase2_hint="block",
+                    path=path_text,
+                    reason=(
+                        "Matches Aikido/BleepingComputer JetBrains Marketplace "
+                        "AI-key stealer plugin ID. A matched indicator, not a "
+                        "verdict - verify file context."
+                    ),
+                    evidence=_line_evidence(content, plugin_id),
+                    boundary="IDE plugin identity",
+                )
+            )
+
+    for indicator in JETBRAINS_AI_KEY_ENDPOINT_INDICATORS:
+        if indicator in content:
+            findings.append(
+                Finding(
+                    rule_id="indicator.jetbrains_ai_key_endpoint",
+                    category="indicator",
+                    severity="critical",
+                    phase2_hint="block",
+                    path=path_text,
+                    reason=(
+                        "Matches reported JetBrains Marketplace AI-key stealer "
+                        "exfiltration endpoint. A matched indicator, not a "
+                        "verdict - verify file context."
+                    ),
+                    evidence=_line_evidence(content, indicator),
+                    boundary="network/exfiltration",
+                )
+            )
 
     return findings
 
