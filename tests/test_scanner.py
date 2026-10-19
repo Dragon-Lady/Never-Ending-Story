@@ -420,6 +420,25 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("exposure.dynatrace_teampcp_service_term", ids)
         self.assertIn("exposure.dynatrace_teampcp_repo_term", ids)
 
+    def test_flags_jetbrains_marketplace_ai_key_stealer_indicators(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin_dir = root / ".local" / "share" / "JetBrains" / "plugins" / "org.sm.yms.toolkit"
+            plugin_dir.mkdir(parents=True)
+            (plugin_dir / "plugin.json").write_text(
+                "{\n"
+                '  "id": "org.sm.yms.toolkit",\n'
+                '  "endpoint": "39.107.60[.]51/api/software/key"\n'
+                "}\n",
+                encoding="utf-8",
+            )
+
+            report = scan_path(root)
+
+        ids = {finding.rule_id for finding in report.findings}
+        self.assertIn("indicator.jetbrains_ai_key_plugin", ids)
+        self.assertIn("indicator.jetbrains_ai_key_endpoint", ids)
+
     def test_flags_openclaw_style_extension_and_npmrc_git_override_surfaces(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

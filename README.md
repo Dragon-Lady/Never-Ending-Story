@@ -76,6 +76,9 @@ The scanner is announce-only. Findings are signals for human review.
 - Dynatrace-shaped token exposure and selected Dynatrace/TeamPCP repo or
   service-name strings observed in public threat-context screenshots. Token
   evidence is redacted.
+- Aikido / BleepingComputer JetBrains Marketplace AI-key stealer indicators:
+  exact reported plugin IDs such as `org.sm.yms.toolkit` and the reported
+  `39.107.60[.]51/api/software/key` endpoint.
 
 ## Run
 
